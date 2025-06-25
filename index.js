@@ -1,0 +1,158 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const dotenv = require('dotenv');
+dotenv.config();
+
+const { REST, Routes, Client, Collection, Events, GatewayIntentBits, MessageFlags, EmbedBuilder} = require('discord.js');
+
+const useGlobal = process.env.USE_GLOBAL === 'true' ?? false;
+const botToken = process.env.BOT_TOKEN ?? null;
+const clientId = process.env.CLIENT_ID ?? null;
+const guildId = process.env.GUILD_ID ?? null;
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+client.commands = new Collection();
+
+/**
+ * Validates the required environment variables.
+ * If any are missing, it logs an error and exits the process.
+ */
+function validateEnvVariables() {
+    if (!botToken) {
+        console.error('Error | BOT_TOKEN is not set in the environment variables.');
+        process.exit(1);
+    }
+    if (!clientId) {
+        console.error('Error | CLIENT_ID is not set in the environment variables.');
+        process.exit(1);
+    }
+    if (!guildId && !useGlobal) {
+        console.error('Error | GUILD_ID is not set in the environment variables and USE_GLOBAL is false.');
+        process.exit(1);
+    }
+}
+
+validateEnvVariables();
+
+/**
+ * Scans the commands directory for command files and loads them into the client.commands collection.
+ *
+ * @returns {Array} An array of command data objects to be used for deploying commands.
+ */
+function scanCommands() {
+    const validCommands = [];
+    const deployCommands = [];
+
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+
+        let command;
+        try {
+            command = require(filePath);
+        } catch (err) {
+            console.error(`Error | Failed to load command file: ${filePath}\n`, err);
+            continue;
+        }
+
+        if ('data' in command && 'execute' in command) {
+            validCommands.push({ name: command.data.name, command });
+            deployCommands.push(command.data.toJSON());
+        } else {
+            console.error(`Error | Command file (${filePath}) does not have the required properties: "data" or "execute".`);
+        }
+    }
+
+    for (const { name, command } of validCommands) {
+        client.commands.set(name, command);
+    }
+
+    console.log(`Info | Loaded ${validCommands.length} valid command(s).`);
+    return deployCommands;
+}
+
+const commands = scanCommands() || [];
+
+/**
+ * Handles incoming interactions and executes the corresponding command.
+ * This listener checks if the interaction is a chat input command, retrieves the command,
+ * and safely executes it with proper error handling and user feedback.
+ */
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    const command = interaction.client.commands.get(interaction.commandName);
+
+    if (!command) {
+        console.error(`Error | No command matching (${interaction.commandName}) was found.`);
+        return;
+    }
+
+    try {
+        await command.execute(interaction);
+    } catch (error) {
+        console.error(`Error | Failed to execute command (${interaction.commandName})\n`, error);
+
+        const errorEmbed = new EmbedBuilder()
+            .setTitle('An Error Has Occurred Whilst Executing This Command')
+            .setDescription('An error occurred while trying to execute this command. Please try again later or contact support if the issue persists.')
+            .setColor('#FF0000')
+            .setFooter({
+                text: interaction.client.user.displayName,
+                iconURL: interaction.client.user.displayAvatarURL()
+            })
+            .setTimestamp();
+
+        errorEmbed.addFields({ name: 'Command Name', value: `\`${interaction.commandName}\`` });
+
+        if (error instanceof Error) {
+            errorEmbed.addFields({ name: 'Error Details', value: `\`${error.message}\`` });
+        }
+
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({
+                embeds: [errorEmbed],
+                flags: MessageFlags.Ephemeral
+            });
+        } else {
+            await interaction.reply({
+                embeds: [errorEmbed],
+                flags: MessageFlags.Ephemeral
+            });
+        }
+    }
+});
+
+/**
+ * Deploys application (/) commands to the specified guild.
+ * This function refreshes all commands using Discord's REST API.
+ */
+const rest = new REST().setToken(botToken);
+
+(async () => {
+    try {
+        console.log(`Info | Started refreshing ${commands.length} application (/) command(s).`);
+
+        const route = useGlobal
+            ? Routes.applicationCommands(clientId)
+            : Routes.applicationGuildCommands(clientId, guildId);
+
+        const data = await rest.put(route, { body: commands });
+
+        console.log(`Success | Successfully reloaded ${data.length} application (/) command(s).`);
+    } catch (error) {
+        console.error(`Error | Failed to deploy application (/) commands.\n`, error);
+    }
+})();
+
+/**
+ * Triggered once when the client becomes ready.
+ * Logs a confirmation message with the bot's tag.
+ */
+client.once(Events.ClientReady, readyClient => {
+    console.log(`Success | Logged in as: ${readyClient.user.tag}`);
+});
+
+client.login(botToken);

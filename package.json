@@ -1,0 +1,28 @@
+{
+  "name": "discord-workshop-update-bot",
+  "description": "A Discord bot that monitors Steam Workshop addons for updates and automatically posts update notifications to specified channels.",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "steam",
+    "workshop",
+    "updates",
+    "notifications"
+  ],
+  "author": "Tristan Budd",
+  "license": "SEE LICENSE IN ROOT DIRECTORY",
+  "type": "commonjs",
+  "dependencies": {
+    "discord.js": "^14.20.0",
+    "dotenv": "^16.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "eslint": "^9.29.0"
+  }
+}
