@@ -3,7 +3,8 @@ const path = require('node:path');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const { REST, Routes, Client, Collection, Events, GatewayIntentBits, MessageFlags, EmbedBuilder} = require('discord.js');
+const { REST, Routes, Client, Collection, Events, GatewayIntentBits, ActivityType} = require('discord.js');
+const { sendErrorMessage } = require('./modules/error');
 
 const useGlobal = process.env.USE_GLOBAL === 'true' ?? false;
 const botToken = process.env.BOT_TOKEN ?? null;
@@ -95,57 +96,38 @@ client.on(Events.InteractionCreate, async interaction => {
     } catch (error) {
         console.error(`Error | Failed to execute command (${interaction.commandName})\n`, error);
 
-        const errorEmbed = new EmbedBuilder()
-            .setTitle('An Error Has Occurred Whilst Executing This Command')
-            .setDescription('An error occurred while trying to execute this command. Please try again later or contact support if the issue persists.')
-            .setColor('#FF0000')
-            .setFooter({
-                text: interaction.client.user.displayName,
-                iconURL: interaction.client.user.displayAvatarURL()
-            })
-            .setTimestamp();
-
-        errorEmbed.addFields({ name: 'Command Name', value: `\`${interaction.commandName}\`` });
-
-        if (error instanceof Error) {
-            errorEmbed.addFields({ name: 'Error Details', value: `\`${error.message}\`` });
-        }
-
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({
-                embeds: [errorEmbed],
-                flags: MessageFlags.Ephemeral
-            });
-        } else {
-            await interaction.reply({
-                embeds: [errorEmbed],
-                flags: MessageFlags.Ephemeral
-            });
-        }
+        await sendErrorMessage(interaction, {
+            "Command Name": interaction.commandName,
+            "Error Details": error.message || 'An unknown error occurred.',
+        });
     }
 });
 
 /**
- * Deploys application (/) commands to the specified guild.
+ * This function deploys application (/) commands to the specified guild.
  * This function refreshes all commands using Discord's REST API.
  */
-const rest = new REST().setToken(botToken);
+function deployCommands() {
+    const rest = new REST().setToken(botToken);
 
-(async () => {
-    try {
-        console.log(`Info | Started refreshing ${commands.length} application (/) command(s).`);
+    (async () => {
+        try {
+            console.log(`Info | Started refreshing ${commands.length} application (/) command(s).`);
 
-        const route = useGlobal
-            ? Routes.applicationCommands(clientId)
-            : Routes.applicationGuildCommands(clientId, guildId);
+            const route = useGlobal
+                ? Routes.applicationCommands(clientId)
+                : Routes.applicationGuildCommands(clientId, guildId);
 
-        const data = await rest.put(route, { body: commands });
+            const data = await rest.put(route, {body: commands});
 
-        console.log(`Success | Successfully reloaded ${data.length} application (/) command(s).`);
-    } catch (error) {
-        console.error(`Error | Failed to deploy application (/) commands.\n`, error);
-    }
-})();
+            console.log(`Success | Successfully reloaded ${data.length} application (/) command(s).`);
+        } catch (error) {
+            console.error(`Error | Failed to deploy application (/) commands.\n`, error);
+        }
+    })();
+}
+
+deployCommands();
 
 /**
  * Triggered once when the client becomes ready.
@@ -153,6 +135,14 @@ const rest = new REST().setToken(botToken);
  */
 client.once(Events.ClientReady, readyClient => {
     console.log(`Success | Logged in as: ${readyClient.user.tag}`);
+
+    readyClient.user.setPresence({
+        activities: [{
+            name: 'with the Steam API',
+            type: ActivityType.Playing
+        }],
+        status: 'online'
+    });
 });
 
 client.login(botToken);
