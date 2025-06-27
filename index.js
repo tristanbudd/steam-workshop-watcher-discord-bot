@@ -4,11 +4,11 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const { sendErrorMessage } = require('./modules/error');
+const { getWorkshopAddonData, getGuildNotifications, setNotificationLastUpdated, getNotificationLastUpdated, removeNotification } = require('./modules/common');
 
 const { REST, Routes, Client, Collection, Events, GatewayIntentBits } = require('discord.js');
 
-// eslint-disable-next-line no-constant-binary-expression
-const useGlobal = process.env.USE_GLOBAL === 'true' ?? false;
+const useGlobal = process.env.USE_GLOBAL ?? false;
 const botToken = process.env.BOT_TOKEN ?? null;
 const clientId = process.env.CLIENT_ID ?? null;
 const guildId = process.env.GUILD_ID ?? null;
@@ -72,7 +72,7 @@ client.on('interactionCreate', async interaction => {
  */
 function scanCommands() {
 	const validCommands = [];
-	const deployCommands = [];
+	const deployedCommands = [];
 
 	for (const file of commandFiles) {
 		const filePath = path.join(commandsPath, file);
@@ -88,7 +88,7 @@ function scanCommands() {
 
 		if ('data' in command && 'execute' in command) {
 			validCommands.push({ name: command.data.name, command });
-			deployCommands.push(command.data.toJSON());
+			deployedCommands.push(command.data.toJSON());
 		}
 		else {
 			console.error(`Error | Command file (${filePath}) does not have the required properties: "data" or "execute".`);
@@ -100,7 +100,7 @@ function scanCommands() {
 	}
 
 	console.log(`Info | Loaded ${validCommands.length} valid command(s).`);
-	return deployCommands;
+	return deployedCommands;
 }
 
 const commands = scanCommands() || [];
@@ -179,6 +179,57 @@ client.once(Events.ClientReady, readyClient => {
 		}],
 		status: 'online',
 	});
+
+	setInterval(() => {
+		client.guilds.cache.forEach(guild => {
+			const searchGuildId = guild.id;
+			const guildNotifications = getGuildNotifications(searchGuildId);
+
+			for (const [channelId, notifications] of Object.entries(guildNotifications)) {
+				const channel = guild.channels.cache.get(channelId);
+
+				if (!channel) {
+					notifications.forEach(notification => {
+						const { type, id } = notification;
+						removeNotification(searchGuildId, channelId, type, id);
+						console.log(`Info | Removed notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId} (channel not found)`);
+					});
+					continue;
+				}
+
+				notifications.forEach(notification => {
+					const { type, id } = notification;
+					const lastUpdated = getNotificationLastUpdated(searchGuildId, channelId, type, id);
+
+					getWorkshopAddonData(id).then(data => {
+						if (data) {
+							if (!lastUpdated) {
+								setNotificationLastUpdated(searchGuildId, channelId, type, id, data.time_updated);
+								console.log(`Info | Set initial notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
+							}
+							else {
+								const currentTime = Date.now();
+								const timeDifference = currentTime - lastUpdated;
+
+								if (timeDifference >= 300000) {
+									setNotificationLastUpdated(searchGuildId, channelId, type, id, data.time_updated);
+									// Send a message to the channel with the updated data. (Also dependant on type)
+									console.log(`Info | Updated notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
+								}
+							}
+						}
+						else {
+							console.warn(`Error | No data found for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
+						}
+					}).catch(err => {
+						console.error(`Error | Error fetching data for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`, err);
+					});
+
+					console.log(`Info | Guild: ${searchGuildId} | Channel: ${channelId} | Type: ${type} | ID: ${id} | Last Updated: ${lastUpdated}`);
+				});
+			}
+		});
+	}, 10000); // 10 seconds for testing (set to 300000 for production)
 });
 
 /**

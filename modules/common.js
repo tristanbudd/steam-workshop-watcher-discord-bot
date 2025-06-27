@@ -5,6 +5,63 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentTyp
 const { sendErrorMessage } = require('./error');
 
 /**
+ * Fetches workshop addon data from the Steam API.
+ * This function retrieves details about a specific workshop addon
+ * and returns all of its data.
+ *
+ * @param addonId
+ * @returns {Promise<*|boolean>}
+ */
+async function getWorkshopAddonData(addonId) {
+	const params = new URLSearchParams();
+	params.append('itemcount', '1');
+	params.append('publishedfileids[0]', addonId);
+
+	const response = await fetch('https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+		},
+		body: params.toString(),
+	});
+
+	if (!response.ok) {
+		return false;
+	}
+
+	const data = await response.json();
+
+	if (
+		!data.response ||
+		!data.response.result ||
+		data.response.result === 0 ||
+		!data.response.resultcount ||
+		data.response.resultcount === 0 ||
+		!data.response.publishedfiledetails ||
+		data.response.publishedfiledetails.length === 0
+	) {
+		return false;
+	}
+	else {
+		const fileDetails = data.response.publishedfiledetails[0];
+
+		if (
+			!fileDetails.publishedfileid ||
+			fileDetails.publishedfileid !== addonId ||
+			fileDetails.result === undefined
+		) {
+			return false;
+		}
+
+		if (Object.keys(data.response.publishedfiledetails[0]).length < 3) {
+			return false;
+		}
+	}
+
+	return data.response.publishedfiledetails[0];
+}
+
+/**
  * This module provides functions to fetch game details and account details from the Steam API.
  * It includes error handling for invalid inputs and API response checks.
  *
@@ -388,7 +445,59 @@ function getChannelNotifications(guildId, channelId) {
 	return data[guildId]?.[channelId] || [];
 }
 
+/**
+ * Sets the last updated timestamp for a specific notification.
+ * This function updates the last updated timestamp
+ * for a specific notification type and ID in a guild and channel.
+ *
+ * @param guildId
+ * @param channelId
+ * @param type
+ * @param id
+ * @param timestamp
+ * @returns {boolean}
+ */
+function setNotificationLastUpdated(guildId, channelId, type, id, timestamp) {
+	const data = readData();
+
+	if (!data[guildId] || !data[guildId][channelId]) {
+		return false;
+	}
+
+	const notification = data[guildId][channelId].find(entry => entry.type === type && entry.id === id);
+	if (notification) {
+		notification.lastUpdated = timestamp;
+		saveData(data);
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Gets the last updated timestamp for a specific notification.
+ * This function retrieves the last updated timestamp
+ * for a specific notification type and ID in a guild and channel.
+ *
+ * @param guildId
+ * @param channelId
+ * @param type
+ * @param id
+ * @returns {*|null}
+ */
+function getNotificationLastUpdated(guildId, channelId, type, id) {
+	const data = readData();
+
+	if (!data[guildId] || !data[guildId][channelId]) {
+		return null;
+	}
+
+	const notification = data[guildId][channelId].find(entry => entry.type === type && entry.id === id);
+	return notification ? notification.lastUpdated : null;
+}
+
 module.exports = {
+	getWorkshopAddonData,
 	getAccountDetails,
 	getGameDetails,
 	sendConfirmationDialogue,
@@ -398,4 +507,6 @@ module.exports = {
 	removeAllNotifications,
 	getGuildNotifications,
 	getChannelNotifications,
+	setNotificationLastUpdated,
+	getNotificationLastUpdated,
 };
