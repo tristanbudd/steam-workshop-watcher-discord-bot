@@ -7,10 +7,11 @@
 
 const cheerio = require('cheerio');
 
-const { sendErrorMessage } = require('../modules/error');
-const { SlashCommandBuilder, MessageFlags, EmbedBuilder} = require('discord.js');
-const {getAccountDetails, getGameDetails} = require("../modules/common");
+const {sendErrorMessage} = require('../modules/error');
+const {getAccountDetails} = require("../modules/common");
 const {truncate} = require("../modules/formatting");
+
+const {SlashCommandBuilder, EmbedBuilder} = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -175,19 +176,23 @@ module.exports = {
             if (interaction.replied || interaction.deferred) {
                 await interaction.followUp({
                     embeds: [embedData],
-                    flags: MessageFlags.Ephemeral
+                    flags: 64
                 });
             } else {
                 await interaction.reply({
                     embeds: [embedData],
-                    flags: MessageFlags.Ephemeral
+                    flags: 64
                 });
             }
         } else {
-            await sendErrorMessage(interaction, {
-                "Command Name": interaction.commandName,
-                "Error Details": error_message || 'An unknown error occurred.',
-            });
+            try {
+                await sendErrorMessage(interaction, {
+                    "Command Name": interaction.commandName,
+                    "Error Details": error_message || 'An unknown error occurred.',
+                });
+            } catch (sendError) {
+                console.error('Error | Failed to send error message:', sendError?.message || sendError);
+            }
         }
     },
 };
