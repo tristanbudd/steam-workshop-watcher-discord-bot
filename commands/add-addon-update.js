@@ -20,8 +20,7 @@ module.exports = {
 				.setDescription('The ID of the Steam Workshop Addon.')
 				.setRequired(true)
 				.setMaxLength(20)
-				.setMinLength(1)
-				.setAutocomplete(false)),
+				.setMinLength(1)),
 	async execute(interaction) {
 		let error_count = 0;
 		let error_message = '';

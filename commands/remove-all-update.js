@@ -24,7 +24,7 @@ module.exports = {
 		const channelName = interaction.channel.name;
 
 		const channelNotifications = getChannelNotifications(interaction.guildId, interaction.channelId);
-		if (channelNotifications.filter(n => n.type === 'addon-update').length < 1 || channelNotifications.filter(n => n.type === 'collection-update').length < 1) {
+		if (!channelNotifications.some(n => n.type === 'addon-update' || n.type === 'collection-update')) {
 			error_count += 1;
 			error_message = 'There are no automatic updater notifications in this channel to remove.';
 		}

@@ -21,8 +21,7 @@ module.exports = {
 				.setDescription('The ID of the Steam Workshop Addon or Collection.')
 				.setRequired(true)
 				.setMaxLength(20)
-				.setMinLength(1)
-				.setAutocomplete(false))
+				.setMinLength(1))
 
 		.addStringOption(option =>
 			option.setName('type')
@@ -128,15 +127,15 @@ module.exports = {
 			try {
 				accountDetails = await getAccountDetails(steamId64);
 			}
-			catch (err) {
-				console.error(`Error | Failed to fetch Steam account details: ${err.message}`);
+			catch (error) {
+				console.error(`Error | Failed to fetch Steam account details: ${error.message}`);
 			}
 
 			try {
 				gameDetails = await getGameDetails(gameId);
 			}
-			catch (err) {
-				console.error(`Error | Failed to fetch game details: ${err.message}`);
+			catch (error) {
+				console.error(`Error | Failed to fetch game details: ${error.message}`);
 			}
 		}
 
