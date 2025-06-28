@@ -23,8 +23,7 @@ module.exports = {
 				.setDescription('The ID of the Steam Workshop Addon. (Collections Not Supported)')
 				.setRequired(true)
 				.setMaxLength(20)
-				.setMinLength(1)
-				.setAutocomplete(false)),
+				.setMinLength(1)),
 	async execute(interaction) {
 		let error_count = 0;
 		let error_message = '';
@@ -106,8 +105,8 @@ module.exports = {
 			try {
 				accountDetails = await getAccountDetails(steamId64);
 			}
-			catch (err) {
-				console.error(`Error | Failed to fetch Steam account details: ${err.message}`);
+			catch (error) {
+				console.error(`Error | Failed to fetch Steam account details: ${error.message}`);
 			}
 		}
 
@@ -134,10 +133,10 @@ module.exports = {
 				});
 			});
 		}
-		catch (err) {
+		catch (error) {
 			error_count += 1;
-			error_message = `An error occurred while fetching the update history: ${err.message}`;
-			console.error(`Error | Failed to fetch update history for ID ${id}:`, err);
+			error_message = `An error occurred while fetching the update history: ${error.message}`;
+			console.error(`Error | Failed to fetch update history for ID ${id}:`, error);
 		}
 
 		if (error_count === 0) {

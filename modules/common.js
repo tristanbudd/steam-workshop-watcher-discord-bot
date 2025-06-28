@@ -101,8 +101,8 @@ async function getAccountDetails(steamId64) {
 		return data.response.players[0];
 
 	}
-	catch (err) {
-		console.error(`Error | An exception occurred while fetching Steam account details: ${err.message}`);
+	catch (error) {
+		console.error(`Error | An exception occurred while fetching Steam account details: ${error.message}`);
 		return null;
 	}
 }
@@ -241,7 +241,7 @@ async function sendConfirmationDialogue(interaction, title, description, confirm
 			return true;
 		}
 	}
-	catch (err) {
+	catch (error) {
 		try {
 			await sentMessage.edit({
 				content: '',

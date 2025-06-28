@@ -4,9 +4,11 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const { sendErrorMessage } = require('./modules/error');
-const { getWorkshopAddonData, getGuildNotifications, setNotificationLastUpdated, getNotificationLastUpdated, removeNotification } = require('./modules/common');
+const { getWorkshopAddonData, getGuildNotifications, setNotificationLastUpdated, getNotificationLastUpdated, removeNotification,
+	getAccountDetails,
+} = require('./modules/common');
 
-const { REST, Routes, Client, Collection, Events, GatewayIntentBits } = require('discord.js');
+const { REST, Routes, Client, Collection, Events, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 
 const useGlobal = process.env.USE_GLOBAL ?? false;
 const botToken = process.env.BOT_TOKEN ?? null;
@@ -41,31 +43,6 @@ function validateEnvVariables() {
 validateEnvVariables();
 
 /**
- * Autofill support for command options based on user input.
- */
-client.on('interactionCreate', async interaction => {
-	try {
-		if (interaction.isAutocomplete()) {
-			const command = client.commands.get(interaction.commandName);
-			if (command && command.autocomplete) {
-				await command.autocomplete(interaction);
-			}
-			return;
-		}
-
-		if (interaction.isChatInputCommand()) {
-			const command = client.commands.get(interaction.commandName);
-			if (!command) return;
-
-			await command.execute(interaction);
-		}
-	}
-	catch (error) {
-		console.error('Error | Error handling interaction:', error);
-	}
-});
-
-/**
  * Scans the commands directory for command files and loads them into the client.commands collection.
  *
  * @returns {Array} An array of command data objects to be used for deploying commands.
@@ -74,6 +51,8 @@ function scanCommands() {
 	const validCommands = [];
 	const deployedCommands = [];
 
+	const loadedCommandNames = new Set();
+
 	for (const file of commandFiles) {
 		const filePath = path.join(commandsPath, file);
 
@@ -81,12 +60,19 @@ function scanCommands() {
 		try {
 			command = require(filePath);
 		}
-		catch (err) {
-			console.error(`Error | Failed to load command file: ${filePath}\n`, err);
+		catch (error) {
+			console.error(`Error | Failed to load command file: ${filePath}\n`, error);
 			continue;
 		}
 
 		if ('data' in command && 'execute' in command) {
+			if (loadedCommandNames.has(command.data.name)) {
+				console.error(`Error | Duplicate command name detected: "${command.data.name}" in file: ${filePath}`);
+				continue;
+			}
+
+			loadedCommandNames.add(command.data.name);
+
 			validCommands.push({ name: command.data.name, command });
 			deployedCommands.push(command.data.toJSON());
 		}
@@ -110,30 +96,44 @@ const commands = scanCommands() || [];
  * This listener checks if the interaction is a chat input command, retrieves the command,
  * and safely executes it with proper error handling and user feedback.
  */
-client.on(Events.InteractionCreate, async interaction => {
-	if (!interaction.isChatInputCommand()) return;
+client.on(Events.InteractionCreate, async (interaction) => {
+	if (interaction.isChatInputCommand()) {
+		const command = interaction.client.commands.get(interaction.commandName);
 
-	const command = interaction.client.commands.get(interaction.commandName);
-
-	if (!command) {
-		console.error(`Error | No command matching (${interaction.commandName}) was found.`);
-		return;
-	}
-
-	try {
-		await command.execute(interaction);
-	}
-	catch (error) {
-		console.error(`Error | Failed to execute command (${interaction.commandName})\n`, error);
+		if (!command) {
+			console.error(`Error | No command matching (${interaction.commandName}) was found.`);
+			return;
+		}
 
 		try {
-			await sendErrorMessage(interaction, {
-				'Command Name': interaction.commandName,
-				'Error Details': error.message || 'An unknown error occurred.',
-			});
+			await command.execute(interaction);
 		}
-		catch (sendError) {
-			console.error('Error | Failed to send error message:', sendError?.message || sendError);
+		catch (error) {
+			if (error.code !== 10062) { // Ignore "Unknown interaction" errors
+				console.error(`Error | Failed to execute command (${interaction.commandName})\n`, error);
+
+				try {
+					await sendErrorMessage(interaction, {
+						'Command Name': interaction.commandName,
+						'Error Details': error.message || 'An unknown error occurred.',
+					});
+				}
+				catch (sendError) {
+					// Failing to send the error message is non-critical.
+				}
+			}
+		}
+	}
+	else if (interaction.isAutocomplete()) {
+		const command = interaction.client.commands.get(interaction.commandName);
+
+		if (!command || !command.autocomplete) return;
+
+		try {
+			await command.autocomplete(interaction);
+		}
+		catch (error) {
+			console.error(`Error | Autocomplete failed for command (${interaction.commandName})\n`, error);
 		}
 	}
 });
@@ -161,6 +161,8 @@ function deployCommands() {
 			console.error('Error | Failed to deploy application (/) commands.\n', error);
 		}
 	})();
+
+	console.log(`Success | Deployed commands: ${commands.map(cmd => cmd.name).join(', ')}`);
 }
 
 deployCommands();
@@ -180,8 +182,11 @@ client.once(Events.ClientReady, readyClient => {
 		status: 'online',
 	});
 
-	setInterval(() => {
-		client.guilds.cache.forEach(guild => {
+	/**
+	 * Sets up a periodic task to check for updates on workshop addons and collections.
+	 */
+	setInterval(async () => {
+		for (const guild of client.guilds.cache.values()) {
 			const searchGuildId = guild.id;
 			const guildNotifications = getGuildNotifications(searchGuildId);
 
@@ -192,44 +197,121 @@ client.once(Events.ClientReady, readyClient => {
 					notifications.forEach(notification => {
 						const { type, id } = notification;
 						removeNotification(searchGuildId, channelId, type, id);
-						console.log(`Info | Removed notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId} (channel not found)`);
 					});
 					continue;
 				}
 
-				notifications.forEach(notification => {
+				for (const notification of notifications) {
 					const { type, id } = notification;
 					const lastUpdated = getNotificationLastUpdated(searchGuildId, channelId, type, id);
 
-					getWorkshopAddonData(id).then(data => {
+					try {
+						const data = await getWorkshopAddonData(id);
 						if (data) {
 							if (!lastUpdated) {
 								setNotificationLastUpdated(searchGuildId, channelId, type, id, data.time_updated);
-								console.log(`Info | Set initial notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
 							}
 							else {
-								const currentTime = Date.now();
-								const timeDifference = currentTime - lastUpdated;
+								const addonUpdateTime = data.time_updated || 0;
+								const timeDifference = Date.now() - lastUpdated;
 
-								if (timeDifference >= 300000) {
+								if (addonUpdateTime > lastUpdated && addonUpdateTime > 0 && timeDifference >= 300000) {
 									setNotificationLastUpdated(searchGuildId, channelId, type, id, data.time_updated);
-									// Send a message to the channel with the updated data. (Also dependant on type)
-									console.log(`Info | Updated notification for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
+
+									const steamId64 = data.creator || '0';
+									let accountDetails = null;
+
+									try {
+										accountDetails = await getAccountDetails(steamId64);
+									}
+									catch (error) {
+										console.error(`Error | Failed to fetch Steam account details: ${error.message}`);
+									}
+
+									let updateEmbedData = null;
+
+									if (type === 'addon-update') {
+										updateEmbedData = new EmbedBuilder()
+											.setTitle('New Addon Update Available')
+											.setDescription(`A new update is available for the addon: ${data.title || 'Unknown Addon'} (${id}).`)
+											.setColor('#3C3C3C')
+											.setThumbnail(data.preview_url || 'https://cdn.discordapp.com/embed/avatars/0.png')
+											.setFooter({
+												text: client.user.displayName,
+												iconURL: client.user.displayAvatarURL(),
+											})
+											.setURL(`https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`)
+											.addFields(
+												{ name: 'Title', value: data.title || 'Unknown Addon', inline: true },
+												{ name: 'Last Updated', value: new Date(lastUpdated * 1000).toLocaleDateString(), inline: true },
+												{ name: 'Date Created', value: new Date(data.time_created * 1000).toLocaleDateString(), inline: true },
+												{ name: 'Visibility', value: data.visibility === 0 ? 'Public' : data.visibility === 1 ? 'Friends Only' : 'Private', inline: true },
+												{ name: 'File Size', value: `${(data.file_size / 1024 / 1024).toFixed(2)} MB`, inline: true },
+												{ name: 'Subscriptions', value: data.subscriptions ? data.subscriptions.toLocaleString() : '0', inline: true },
+												{ name: 'Addon URL', value: `https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`, inline: false },
+											)
+											.setTimestamp();
+
+										if (accountDetails) {
+											updateEmbedData.setAuthor({
+												name: accountDetails.personaname || 'Unknown Creator',
+												iconURL: accountDetails.avatarfull || 'https://cdn.discordapp.com/embed/avatars/0.png',
+												url: accountDetails.profileurl || `https://steamcommunity.com/id/${steamId64}`,
+											});
+										}
+									}
+									else if (type === 'collection-update') {
+										updateEmbedData = new EmbedBuilder()
+											.setTitle('New Collection Update Available')
+											.setDescription(`A new update is available for the collection: ${data.title || 'Unknown Collection'} (${id}).`)
+											.setColor('#3C3C3C')
+											.setThumbnail(data.file_url || 'https://cdn.discordapp.com/embed/avatars/0.png')
+											.setFooter({
+												text: client.user.displayName,
+												iconURL: client.user.displayAvatarURL(),
+											})
+											.setURL(`https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`)
+											.addFields(
+												{ name: 'Title', value: data.title || 'Unknown Addon', inline: true },
+												{ name: 'Last Updated', value: new Date(lastUpdated * 1000).toLocaleDateString(), inline: true },
+												{ name: 'Date Created', value: new Date(data.time_created * 1000).toLocaleDateString(), inline: true },
+												{ name: 'Collection URL', value: `https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`, inline: false },
+											)
+											.setTimestamp();
+
+										if (accountDetails) {
+											updateEmbedData.setAuthor({
+												name: accountDetails.personaname || 'Unknown Creator',
+												iconURL: accountDetails.avatarfull || 'https://cdn.discordapp.com/embed/avatars/0.png',
+												url: accountDetails.profileurl || `https://steamcommunity.com/id/${steamId64}`,
+											});
+										}
+									}
+
+									try {
+										await client.channels.cache.get(channelId)?.send({
+											content: '',
+											embeds: updateEmbedData ? [updateEmbedData] : [],
+										});
+									}
+									catch (error) {
+										console.error('Error | Failed to send update message:', error?.message || error);
+									}
 								}
 							}
 						}
 						else {
 							console.warn(`Error | No data found for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`);
 						}
-					}).catch(err => {
-						console.error(`Error | Error fetching data for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`, err);
-					});
-
-					console.log(`Info | Guild: ${searchGuildId} | Channel: ${channelId} | Type: ${type} | ID: ${id} | Last Updated: ${lastUpdated}`);
-				});
+					}
+					catch (error) {
+						console.error(`Error | Error fetching data for ID: ${id} in Guild: ${searchGuildId}, Channel: ${channelId}, Type: ${type}`, error);
+					}
+				}
 			}
-		});
-	}, 10000); // 10 seconds for testing (set to 300000 for production)
+		}
+	}, 30000);
+	// 30 seconds for testing (set to 300000 for production)
 });
 
 /**
