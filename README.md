@@ -67,6 +67,7 @@ BOT_TOKEN=your-discord-bot-token
 CLIENT_ID=your-discord-client-id
 GUILD_ID=your-discord-guild-id # Only needed if USE_GLOBAL is false
 STEAM_API_KEY=your-steam-api-key # Get it from https://steamcommunity.com/dev/apikey
+```
 
 ---
 
