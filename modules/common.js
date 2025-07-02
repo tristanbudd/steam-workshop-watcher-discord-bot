@@ -268,12 +268,17 @@ async function sendConfirmationDialogue(interaction, title, description, confirm
 	}
 }
 
-const dataFilePath = path.join(__dirname, '..', 'data', 'notifications.json');
+const dataDirPath = path.join(__dirname, '..', 'data');
+const dataFilePath = path.join(dataDirPath, 'notifications.json');
 
 /**
  * Ensures the data file exists by checking if it exists and creating it if not.
  */
 function ensureDataFile() {
+	if (!fs.existsSync(dataDirPath)) {
+		fs.mkdirSync(dataDirPath, { recursive: true }); // Create directory if it doesn't exist
+	}
+
 	if (!fs.existsSync(dataFilePath) || fs.statSync(dataFilePath).size === 0) {
 		fs.writeFileSync(dataFilePath, JSON.stringify({}, null, 4));
 	}
