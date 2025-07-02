@@ -276,7 +276,7 @@ const dataFilePath = path.join(dataDirPath, 'notifications.json');
  */
 function ensureDataFile() {
 	if (!fs.existsSync(dataDirPath)) {
-		fs.mkdirSync(dataDirPath, { recursive: true }); // Create directory if it doesn't exist
+		fs.mkdirSync(dataDirPath, { recursive: true });
 	}
 
 	if (!fs.existsSync(dataFilePath) || fs.statSync(dataFilePath).size === 0) {
